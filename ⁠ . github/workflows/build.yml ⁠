@@ -16,16 +16,17 @@ jobs:
       uses: microsoft/setup-msbuild@v2
 
     - name: Download ScriptHookV SDK Stubs
+      shell: cmd
       run: |
-        # سحب ملفات مكتبة المطور ألكسندر بليد ليتم الدمج معها
         curl -L -o schook.zip https://github.com/scripthookv-gta5/ScriptHookV-SDK/archive/refs/heads/master.zip
         tar -xf schook.zip
-        move ScriptHookV-SDK-master/inc/* .
+        move ScriptHookV-SDK-master\inc\* .
+        move ScriptHookV-SDK-master\lib\ScriptHookV.lib .
 
     - name: Compile ASI File
+      shell: cmd
       run: |
-        # أمر المترجم لإنشاء ملف ديناميكي متوافق مع معمارية 64 بت للمحاكي
-        cl.exe /LD /EHsc main.cpp /I. /Fe:WeaponsOnBack.asi /link /MACHINE:X64
+        cl.exe /LD /EHsc main.cpp ScriptHookV.lib /I. /Fe:WeaponsOnBack.asi /link /MACHINE:X64
 
     - name: Upload Finished Mod
       uses: actions/upload-artifact@v4
