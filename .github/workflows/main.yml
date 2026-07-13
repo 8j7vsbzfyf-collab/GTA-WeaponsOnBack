@@ -15,15 +15,19 @@ jobs:
     - name: Setup MSBuild
       uses: microsoft/setup-msbuild@v2
 
-    - name: Download ScriptHookV SDK Stubs
+    - name: Download ScriptHookV SDK (Direct)
+      shell: cmd
       run: |
-        curl -L -o schook.zip https://github.com/scripthookv-gta5/ScriptHookV-SDK/archive/refs/heads/master.zip
-        tar -xf schook.zip
-        move ScriptHookV-SDK-master/inc/* .
+        curl -L -o main.h https://raw.githubusercontent.com/Give-Two/ScriptHookV/master/SDK/inc/main.h
+        curl -L -o natives.h https://raw.githubusercontent.com/Give-Two/ScriptHookV/master/SDK/inc/natives.h
+        curl -L -o enums.h https://raw.githubusercontent.com/Give-Two/ScriptHookV/master/SDK/inc/enums.h
+        curl -L -o types.h https://raw.githubusercontent.com/Give-Two/ScriptHookV/master/SDK/inc/types.h
+        curl -L -o ScriptHookV.lib https://raw.githubusercontent.com/Give-Two/ScriptHookV/master/SDK/lib/ScriptHookV.lib
 
     - name: Compile ASI File
+      shell: cmd
       run: |
-        cl.exe /LD /EHsc main.cpp /I. /Fe:WeaponsOnBack.asi /link /MACHINE:X64
+        cl.exe /nologo /LD /EHsc main.cpp ScriptHookV.lib /I. /Fe:WeaponsOnBack.asi /link /MACHINE:X64
 
     - name: Upload Finished Mod
       uses: actions/upload-artifact@v4
