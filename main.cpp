@@ -1,10 +1,7 @@
 // ============================================================================
 //  WeaponsOnBack.asi — ScriptHookV mod for Grand Theft Auto V (single-player)
 // ----------------------------------------------------------------------------
-//  Large weapons (assault rifles, shotguns, sniper rifles) that the player
-//  owns but is NOT currently holding are rendered as props attached to the
-//  player's back. Equipping a weapon removes its back prop instantly;
-//  holstering or switching away restores it.
+//  Includes Custom Draw Animation & Professional Diagonal Slots
 // ============================================================================
 
 #include <windows.h>
@@ -20,10 +17,10 @@
 // ============================================================================
 namespace cfg
 {
-    constexpr int       MAX_BACK_SLOTS   = 3;       // props shown at once
+    constexpr int       MAX_BACK_SLOTS   = 2;       // 2 slots for a clean X look
     constexpr ULONGLONG SCAN_INTERVAL_MS = 250;     // inventory re-scan period
     constexpr ULONGLONG ASSET_TIMEOUT_MS = 3000;    // weapon asset load timeout
-    constexpr bool      HIDE_IN_VEHICLES = false;   // true = no props in cars
+    constexpr bool      HIDE_IN_VEHICLES = true;    // Hide weapons inside cars
 
     // Ped skeleton bone tags (input to GET_PED_BONE_INDEX)
     constexpr int BONE_SKEL_SPINE3 = 24818;         // upper back (main mount)
@@ -36,12 +33,11 @@ namespace cfg
         float rx, ry, rz;           // rotation: pitch (X), roll (Y), yaw (Z)
     };
 
-    // Hand-tuned so standard rifles rest flat against the torso
+    // Professional Diagonal Placement (X Shape)
     constexpr SlotConfig SLOTS[MAX_BACK_SLOTS] =
     {
-        { BONE_SKEL_SPINE3,  0.13f, -0.17f, -0.12f,   0.0f,  155.0f,   0.0f }, // slot 0: diagonal, stock over right shoulder
-        { BONE_SKEL_SPINE3, -0.13f, -0.17f, -0.09f,   0.0f, -155.0f,   0.0f }, // slot 1: mirrored diagonal, left shoulder
-        { BONE_SKEL_SPINE3,  0.00f, -0.22f, -0.32f,   0.0f,   90.0f,  87.0f }, // slot 2: horizontal across the lower back
+        { BONE_SKEL_SPINE3,  0.07f, -0.16f, -0.05f,   0.0f,  135.0f,   0.0f }, 
+        { BONE_SKEL_SPINE3, -0.07f, -0.16f, -0.05f,   0.0f, -135.0f,   0.0f }, 
     };
 }
 
@@ -86,19 +82,18 @@ static const Hash TRACKED[] =
     0x6E7DDDECu, // WEAPON_PRECISIONRIFLE
 };
 static constexpr size_t TRACKED_COUNT = sizeof(TRACKED) / sizeof(TRACKED[0]);
-static_assert(TRACKED_COUNT > 0, "TRACKED weapon list must not be empty");
 
 // ============================================================================
 // Runtime state
 // ============================================================================
 struct BackSlot
 {
-    Hash   weapon = 0;   // weapon hash occupying this slot (0 = free)
-    Object prop   = 0;   // world object attached to the player's back
+    Hash   weapon = 0;   
+    Object prop   = 0;   
 };
 
 static BackSlot  g_slots[cfg::MAX_BACK_SLOTS];
-static Hash      g_trackedModels[TRACKED_COUNT];  // cached prop model hashes
+static Hash      g_trackedModels[TRACKED_COUNT];  
 static Ped       g_lastPed      = 0;
 static Hash      g_lastCurrent  = 0;
 static Hash      g_lastSelected = 0;
@@ -140,14 +135,13 @@ static Object CreateBackProp(Ped ped, Hash weapon, int slotIdx)
     while (!WEAPON::HAS_WEAPON_ASSET_LOADED(weapon))
     {
         WAIT(0);
-        if (GetTickCount64() > deadline)     return 0; // streaming timeout
+        if (GetTickCount64() > deadline)     return 0; 
         if (!ENTITY::DOES_ENTITY_EXIST(ped)) return 0;
-        if (PLAYER::PLAYER_PED_ID() != ped)  return 0; // ped changed mid-wait
+        if (PLAYER::PLAYER_PED_ID() != ped)  return 0; 
     }
 
     const Vector3 c = ENTITY::GET_ENTITY_COORDS(ped, TRUE);
 
-    // تم إرجاعها إلى 8 أوامر لتتوافق مع الملفات الأصلية
     Object obj = WEAPON::CREATE_WEAPON_OBJECT(weapon, 1, c.x, c.y, c.z, TRUE, 1.0f, 0);
 
     WEAPON::REMOVE_WEAPON_ASSET(weapon); 
@@ -171,18 +165,47 @@ static Object CreateBackProp(Ped ped, Hash weapon, int slotIdx)
         sc.x,  sc.y,  sc.z,
         sc.rx, sc.ry, sc.rz,
         FALSE,   
-        FALSE,   // useSoftPinning — rigid mount, no wobble
-        FALSE,   // collision — never collide while on the back
         FALSE,   
-        2,       // rotation order
-        TRUE);   // fixedRot — lock rotation to the bone
+        FALSE,   
+        FALSE,   
+        2,       
+        TRUE);   
 
     return obj;
 }
 
 // ============================================================================
-// Helpers
+// Helpers & Custom Animations
 // ============================================================================
+static bool IsTrackedWeaponHash(Hash weapon)
+{
+    for (size_t i = 0; i < TRACKED_COUNT; ++i)
+    {
+        if (TRACKED[i] == weapon)
+            return true;
+    }
+    return false;
+}
+
+static void PlayDrawAnimation(Ped ped)
+{
+    char* dict = (char*)"reaction@intimidation@1h";
+    char* anim = (char*)"intro";
+
+    STREAMING::REQUEST_ANIM_DICT(dict);
+    ULONGLONG deadline = GetTickCount64() + 1000;
+    while (!STREAMING::HAS_ANIM_DICT_LOADED(dict) && GetTickCount64() < deadline)
+    {
+        WAIT(0);
+    }
+
+    if (STREAMING::HAS_ANIM_DICT_LOADED(dict))
+    {
+        // 48 = UpperBody (16) + PlayIdle (32) to allow walking/running while pulling
+        TASK::TASK_PLAY_ANIM(ped, dict, anim, 8.0f, -8.0f, 600, 48, 0.0f, 0, 0, 0);
+    }
+}
+
 static bool Qualifies(Ped ped, Hash weapon, Hash current, Hash selected)
 {
     if (weapon == current || weapon == selected)
@@ -279,7 +302,6 @@ static void Update()
         return;
     }
 
-    // تم تعديلها لتأخذ معلومة واحدة فقط لتتوافق مع الملفات الأصلية
     if (CUTSCENE::IS_CUTSCENE_PLAYING() || ENTITY::IS_ENTITY_DEAD(ped))
     {
         DeleteAllProps();
@@ -298,8 +320,24 @@ static void Update()
     WEAPON::GET_CURRENT_PED_WEAPON(ped, &current, TRUE);
     const Hash selected = WEAPON::GET_SELECTED_PED_WEAPON(ped);
 
-    if (current  != g_lastCurrent)  { g_lastCurrent  = current;  g_forceScan = true; }
-    if (selected != g_lastSelected) { g_lastSelected = selected; g_forceScan = true; }
+    // --- نظام السحب والأنيميشن الجديد ---
+    if (selected != g_lastSelected)
+    {
+        // إذا اخترت سلاح ثقيل جديد، أو رجعت سلاح ثقيل لظهرك
+        if (IsTrackedWeaponHash(selected) || IsTrackedWeaponHash(g_lastSelected))
+        {
+            PlayDrawAnimation(ped);
+            WAIT(150); // تأخير بسيط جداً لوزن حركة اليد مع ظهور السلاح
+        }
+        g_lastSelected = selected;
+        g_forceScan = true;
+    }
+
+    if (current != g_lastCurrent)  
+    { 
+        g_lastCurrent = current;  
+        g_forceScan = true; 
+    }
 
     const ULONGLONG now = GetTickCount64();
     if (!g_forceScan && now < g_nextScanAt)
