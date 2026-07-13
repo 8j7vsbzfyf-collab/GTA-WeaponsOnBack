@@ -15,13 +15,6 @@ jobs:
     - name: Setup MSVC Compiler
       uses: ilammy/msvc-dev-cmd@v1
 
-    - name: Download Authentic SDK (Crosire)
-      shell: cmd
-      run: |
-        git clone https://github.com/crosire/scripthookv.git sdk_repo
-        for /r sdk_repo %%f in (*.h) do copy "%%f" .
-        for /r sdk_repo %%f in (ScriptHookV.lib) do copy "%%f" .
-
     - name: Compile ASI File
       shell: cmd
       run: |
