@@ -15,40 +15,12 @@ jobs:
     - name: Setup MSVC Compiler
       uses: ilammy/msvc-dev-cmd@v1
 
-    - name: Download SDK Headers (Direct - 100% Working)
+    - name: Download Authentic SDK (Crosire)
       shell: cmd
       run: |
-        curl -L -o main.h https://raw.githubusercontent.com/Give-Two/ScriptHookV/master/SDK/inc/main.h
-        curl -L -o natives.h https://raw.githubusercontent.com/Give-Two/ScriptHookV/master/SDK/inc/natives.h
-        curl -L -o enums.h https://raw.githubusercontent.com/Give-Two/ScriptHookV/master/SDK/inc/enums.h
-        curl -L -o types.h https://raw.githubusercontent.com/Give-Two/ScriptHookV/master/SDK/inc/types.h
-        curl -L -o nativeCaller.h https://raw.githubusercontent.com/Give-Two/ScriptHookV/master/SDK/inc/nativeCaller.h
-
-    - name: Forge ScriptHookV.lib Locally (No Downloads needed)
-      shell: cmd
-      run: |
-        echo EXPORTS > ScriptHookV.def
-        echo createTexture >> ScriptHookV.def
-        echo drawTexture >> ScriptHookV.def
-        echo getGameVersion >> ScriptHookV.def
-        echo getGlobalPtr >> ScriptHookV.def
-        echo keyboardHandlerRegister >> ScriptHookV.def
-        echo keyboardHandlerUnregister >> ScriptHookV.def
-        echo nativeCall >> ScriptHookV.def
-        echo nativeInit >> ScriptHookV.def
-        echo nativePush64 >> ScriptHookV.def
-        echo presentCallbackRegister >> ScriptHookV.def
-        echo presentCallbackUnregister >> ScriptHookV.def
-        echo scriptRegister >> ScriptHookV.def
-        echo scriptRegisterAdditionalThread >> ScriptHookV.def
-        echo scriptUnregister >> ScriptHookV.def
-        echo scriptWait >> ScriptHookV.def
-        echo textureHasLoaded >> ScriptHookV.def
-        echo worldGetAllObjects >> ScriptHookV.def
-        echo worldGetAllPeds >> ScriptHookV.def
-        echo worldGetAllPickups >> ScriptHookV.def
-        echo worldGetAllVehicles >> ScriptHookV.def
-        lib.exe /nologo /def:ScriptHookV.def /out:ScriptHookV.lib /machine:x64
+        git clone https://github.com/crosire/scripthookv.git sdk_repo
+        for /r sdk_repo %%f in (*.h) do copy "%%f" .
+        for /r sdk_repo %%f in (ScriptHookV.lib) do copy "%%f" .
 
     - name: Compile ASI File
       shell: cmd
