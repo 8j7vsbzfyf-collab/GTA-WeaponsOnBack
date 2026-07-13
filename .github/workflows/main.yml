@@ -12,8 +12,8 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Setup MSBuild
-      uses: microsoft/setup-msbuild@v2
+    - name: Setup MSVC Compiler
+      uses: ilammy/msvc-dev-cmd@v1
 
     - name: Download ScriptHookV SDK (Direct)
       shell: cmd
