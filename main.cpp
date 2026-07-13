@@ -5,30 +5,15 @@
 //  owns but is NOT currently holding are rendered as props attached to the
 //  player's back. Equipping a weapon removes its back prop instantly;
 //  holstering or switching away restores it.
-//
-//  BUILD
-//    - Visual Studio, x64, Release, C++17 or newer.
-//    - Add the ScriptHookV SDK "inc" folder to the include path and link
-//      against ScriptHookV.lib (adjust the #include paths below to match
-//      your project layout).
-//    - Rename the built DLL to WeaponsOnBack.asi and place it in the GTA V
-//      root folder (requires ScriptHookV + dinput8.dll installed).
-//
-//  NOTE ON natives.h VERSIONS
-//    - Older SDK headers declare CREATE_WEAPON_OBJECT with 8 parameters;
-//      newer NativeDB-generated headers use 10 (..., Any p7, Any p8, Any p9).
-//      If your header wants more arguments, append 0s. The 7th float is
-//      documented as "heading" in old headers and "scale" in new ones —
-//      1.0f is safe for both interpretations.
 // ============================================================================
 
 #include <windows.h>
 #include <cstddef>
 
-#include "inc\types.h"
-#include "inc\enums.h"
-#include "inc\natives.h"
-#include "inc\main.h"
+#include "types.h"
+#include "enums.h"
+#include "natives.h"
+#include "main.h"
 
 // ============================================================================
 // Configuration
@@ -51,12 +36,7 @@ namespace cfg
         float rx, ry, rz;           // rotation: pitch (X), roll (Y), yaw (Z)
     };
 
-    // Hand-tuned so standard rifles rest flat against the torso:
-    //   x : left/right across the back      y : in/out of the body (negative = behind)
-    //   z : up/down along the spine         ry: roll around the weapon's barrel axis
-    // If one specific model clips (extra-long snipers, drum-mag shotguns),
-    // nudge y outward by ~0.02 and/or adjust ry by +-10. Swap a slot's bone to
-    // BONE_SKEL_PELVIS for a hip-holster style mount (retune offsets after).
+    // Hand-tuned so standard rifles rest flat against the torso
     constexpr SlotConfig SLOTS[MAX_BACK_SLOTS] =
     {
         { BONE_SKEL_SPINE3,  0.13f, -0.17f, -0.12f,   0.0f,  155.0f,   0.0f }, // slot 0: diagonal, stock over right shoulder
@@ -104,12 +84,6 @@ static const Hash TRACKED[] =
     0xC734385Au, // WEAPON_MARKSMANRIFLE
     0x6A6C02E0u, // WEAPON_MARKSMANRIFLE_MK2
     0x6E7DDDECu, // WEAPON_PRECISIONRIFLE
-
-    // ----- Machine guns (uncomment to enable) -----
-    // 0x9D07F764u, // WEAPON_MG
-    // 0x7FD62962u, // WEAPON_COMBATMG
-    // 0xDBBD7280u, // WEAPON_COMBATMG_MK2
-    // 0x61012683u, // WEAPON_GUSENBERG
 };
 static constexpr size_t TRACKED_COUNT = sizeof(TRACKED) / sizeof(TRACKED[0]);
 static_assert(TRACKED_COUNT > 0, "TRACKED weapon list must not be empty");
@@ -134,8 +108,6 @@ static bool      g_forceScan    = true;
 // ============================================================================
 // Prop lifecycle
 // ============================================================================
-
-// Safely destroy a prop we own. Zeroes the handle so it can never dangle.
 static void DeleteProp(Object& obj)
 {
     if (obj != 0 && ENTITY::DOES_ENTITY_EXIST(obj))
@@ -160,9 +132,6 @@ static void DeleteAllProps()
     g_forceScan = true;
 }
 
-// Create a weapon prop and attach it to the player's back at the given slot.
-// Returns 0 on any failure — the caller simply retries on a later scan, so a
-// single failed stream request can never wedge or crash the script.
 static Object CreateBackProp(Ped ped, Hash weapon, int slotIdx)
 {
     WEAPON::REQUEST_WEAPON_ASSET(weapon, 31, 0);
@@ -178,21 +147,17 @@ static Object CreateBackProp(Ped ped, Hash weapon, int slotIdx)
 
     const Vector3 c = ENTITY::GET_ENTITY_COORDS(ped, TRUE);
 
-    // Created at the ped's position and attached in the same script tick, so
-    // it is never visible free-standing. See header note about param count.
     Object obj = WEAPON::CREATE_WEAPON_OBJECT(weapon, 1, c.x, c.y, c.z, TRUE, 1.0f, 0);
 
-    WEAPON::REMOVE_WEAPON_ASSET(weapon); // release our streaming ref either way
+    WEAPON::REMOVE_WEAPON_ASSET(weapon); 
 
     if (obj == 0 || !ENTITY::DOES_ENTITY_EXIST(obj))
         return 0;
 
-    // Own the entity so world streaming can't cull it, and make it inert.
     ENTITY::SET_ENTITY_AS_MISSION_ENTITY(obj, TRUE, TRUE);
     ENTITY::SET_ENTITY_COLLISION(obj, FALSE, FALSE);
     ENTITY::SET_ENTITY_INVINCIBLE(obj, TRUE);
 
-    // Mirror the tint the player applied to the real weapon.
     const int tint = WEAPON::GET_PED_WEAPON_TINT_INDEX(ped, weapon);
     if (tint > 0)
         WEAPON::SET_WEAPON_OBJECT_TINT_INDEX(obj, tint);
@@ -204,10 +169,10 @@ static Object CreateBackProp(Ped ped, Hash weapon, int slotIdx)
         obj, ped, boneIndex,
         sc.x,  sc.y,  sc.z,
         sc.rx, sc.ry, sc.rz,
-        FALSE,   // p9
+        FALSE,   
         FALSE,   // useSoftPinning — rigid mount, no wobble
         FALSE,   // collision — never collide while on the back
-        FALSE,   // attached entity is a ped
+        FALSE,   
         2,       // rotation order
         TRUE);   // fixedRot — lock rotation to the bone
 
@@ -217,11 +182,6 @@ static Object CreateBackProp(Ped ped, Hash weapon, int slotIdx)
 // ============================================================================
 // Helpers
 // ============================================================================
-
-// A weapon is shown on the back only if the player owns it AND it is not in
-// (or about to be drawn into) the hands. Checking the *selected* weapon in
-// addition to the *current* one removes the back prop the moment the swap
-// animation starts, so the gun never renders in both places at once.
 static bool Qualifies(Ped ped, Hash weapon, Hash current, Hash selected)
 {
     if (weapon == current || weapon == selected)
@@ -245,9 +205,6 @@ static int FirstFreeSlot()
     return -1;
 }
 
-// Recover from the game deleting/detaching a prop behind our back (area
-// streaming, mission scripts, etc.). The slot is freed and its weapon gets
-// recreated on the next scan — no ghost handles, no crashes.
 static void ValidateProps(Ped ped)
 {
     for (int s = 0; s < cfg::MAX_BACK_SLOTS; ++s)
@@ -274,9 +231,6 @@ static bool IsTrackedModel(Hash model)
     return false;
 }
 
-// If ScriptHookV hot-reloads scripts (Insert key), a previous instance's
-// props survive as orphans attached to the player. Sweep them once at start
-// so a reload never leaves "ghost weapons" floating on the character.
 static void SweepOrphans()
 {
     const Ped ped = PLAYER::PLAYER_PED_ID();
@@ -297,7 +251,7 @@ static void SweepOrphans()
         if (!ENTITY::IS_ENTITY_ATTACHED_TO_ENTITY(o, ped)) continue;
 
         const Hash model = ENTITY::GET_ENTITY_MODEL(o);
-        if (model == heldModel)   continue; // never touch the weapon in hand
+        if (model == heldModel)   continue; 
         if (!IsTrackedModel(model)) continue;
 
         DeleteProp(o);
@@ -311,7 +265,6 @@ static void Update()
 {
     const Ped ped = PLAYER::PLAYER_PED_ID();
 
-    // Character switch / respawn: old handles are stale, rebuild from scratch.
     if (ped != g_lastPed)
     {
         DeleteAllProps();
@@ -325,10 +278,8 @@ static void Update()
         return;
     }
 
-    // Cutscenes use their own ped rigs, and a dead player shouldn't sprout
-    // rifles during the death cam. Inventory persists, so everything is
-    // rebuilt automatically the moment normal gameplay resumes.
-    if (CUTSCENE::IS_CUTSCENE_PLAYING() || ENTITY::IS_ENTITY_DEAD(ped))
+    // تم تصحيح البارامترات هنا لتفادي خطأ C2660
+    if (CUTSCENE::IS_CUTSCENE_PLAYING() || ENTITY::IS_ENTITY_DEAD(ped, FALSE))
     {
         DeleteAllProps();
         return;
@@ -346,8 +297,6 @@ static void Update()
     WEAPON::GET_CURRENT_PED_WEAPON(ped, &current, TRUE);
     const Hash selected = WEAPON::GET_SELECTED_PED_WEAPON(ped);
 
-    // React instantly to equip/holster/switch; otherwise the full inventory
-    // diff runs on a slow 250 ms timer to keep per-frame native calls minimal.
     if (current  != g_lastCurrent)  { g_lastCurrent  = current;  g_forceScan = true; }
     if (selected != g_lastSelected) { g_lastSelected = selected; g_forceScan = true; }
 
@@ -358,8 +307,6 @@ static void Update()
     g_forceScan  = false;
     g_nextScanAt = now + cfg::SCAN_INTERVAL_MS;
 
-    // 1) Free any slot whose weapon was equipped, selected, or removed from
-    //    the inventory (mission strips, wanted-bust, trainer, etc.).
     for (int s = 0; s < cfg::MAX_BACK_SLOTS; ++s)
     {
         if (g_slots[s].weapon != 0 &&
@@ -369,8 +316,6 @@ static void Update()
         }
     }
 
-    // 2) Mount qualifying weapons that aren't displayed yet. Slot assignment
-    //    is stable: a weapon keeps its position on the back across scans.
     for (size_t i = 0; i < TRACKED_COUNT; ++i)
     {
         const Hash w = TRACKED[i];
@@ -379,7 +324,7 @@ static void Update()
 
         const int s = FirstFreeSlot();
         if (s < 0)
-            break; // all visual slots occupied; extra weapons stay hidden
+            break; 
 
         const Object prop = CreateBackProp(ped, w, s);
         if (prop != 0)
@@ -395,8 +340,6 @@ static void Update()
 // ============================================================================
 void ScriptMain()
 {
-    // Reset all state explicitly — ScriptHookV re-enters ScriptMain on script
-    // reload without reloading the DLL, so never trust static initialisers.
     for (int s = 0; s < cfg::MAX_BACK_SLOTS; ++s)
         g_slots[s] = BackSlot{};
     g_lastPed      = 0;
@@ -405,7 +348,6 @@ void ScriptMain()
     g_nextScanAt   = 0;
     g_forceScan    = true;
 
-    // Cache the prop model hash of every tracked weapon (used by the sweep).
     for (size_t i = 0; i < TRACKED_COUNT; ++i)
         g_trackedModels[i] = WEAPON::GET_WEAPONTYPE_MODEL(TRACKED[i]);
 
