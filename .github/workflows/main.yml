@@ -1,128 +1,37 @@
-# ============================================================================
-#  Build WeaponsOnBack.asi — GTA V ScriptHookV mod
-#  Place this file at: .github/workflows/build.yml
-# ============================================================================
-name: Build WeaponsOnBack
+name: Build GTA V ASI Mod
 
 on:
   push:
-    branches: [ main ]
+    branches: [ "main" ]
   workflow_dispatch:
-
-env:
-  SDK_VERSION: 1.0.617.1a   # official Alexander Blade ScriptHookV SDK
 
 jobs:
   build:
     runs-on: windows-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+    - uses: actions/checkout@v4
 
-      # ----------------------------------------------------------------------
-      # 1) SDK acquisition — cached, so dev-c.com downtime can never break
-      #    the build again after the first successful run.
-      # ----------------------------------------------------------------------
-      - name: Cache ScriptHookV SDK
-        id: sdk-cache
-        uses: actions/cache@v4
-        with:
-          path: sdk
-          key: scripthookv-sdk-${{ env.SDK_VERSION }}
+    - name: Setup MSVC Compiler
+      uses: ilammy/msvc-dev-cmd@v1
 
-      - name: Download ScriptHookV SDK (dev-c.com)
-        if: steps.sdk-cache.outputs.cache-hit != 'true'
-        shell: pwsh
-        run: |
-          $url = "http://www.dev-c.com/files/ScriptHookV_SDK_$($env:SDK_VERSION).zip"
-          Invoke-WebRequest $url `
-            -Headers @{ Referer = 'http://www.dev-c.com/gtav/scripthookv/' } `
-            -UserAgent 'Mozilla/5.0' `
-            -OutFile sdk.zip
+    - name: Download ScriptHookV SDK (Direct)
+      shell: cmd
+      run: |
+        curl -L -o main.h https://raw.githubusercontent.com/Give-Two/ScriptHookV/master/SDK/inc/main.h
+        curl -L -o natives.h https://raw.githubusercontent.com/Give-Two/ScriptHookV/master/SDK/inc/natives.h
+        curl -L -o enums.h https://raw.githubusercontent.com/Give-Two/ScriptHookV/master/SDK/inc/enums.h
+        curl -L -o types.h https://raw.githubusercontent.com/Give-Two/ScriptHookV/master/SDK/inc/types.h
+        curl -L -o nativeCaller.h https://raw.githubusercontent.com/Give-Two/ScriptHookV/master/SDK/inc/nativeCaller.h
+        curl -L -o ScriptHookV.lib https://github.com/Give-Two/ScriptHookV/raw/master/SDK/lib/ScriptHookV.lib
 
-          # dev-c.com silently serves an HTML page when the Referer is
-          # missing/wrong. A real ZIP starts with the bytes 'PK' — fail
-          # loudly here instead of letting garbage reach the compiler.
-          $sig = Get-Content sdk.zip -AsByteStream -TotalCount 2
-          if ($sig[0] -ne 0x50 -or $sig[1] -ne 0x4B) {
-            Write-Host '--- First lines of what the server actually sent: ---'
-            Get-Content sdk.zip -TotalCount 5
-            throw 'Downloaded file is not a ZIP (server returned HTML).'
-          }
-          Write-Host "ZIP looks valid: $((Get-Item sdk.zip).Length) bytes"
+    - name: Compile ASI File
+      shell: cmd
+      run: |
+        cl.exe /nologo /std:c++17 /LD /EHsc main.cpp ScriptHookV.lib /I. /Fe:WeaponsOnBack.asi /link /MACHINE:X64
 
-          Expand-Archive sdk.zip -DestinationPath sdk -Force
-
-      # ----------------------------------------------------------------------
-      # 2) Locate inc/ and ScriptHookV.lib wherever they landed in the zip,
-      #    and validate the .lib is a real COFF archive — not a text stub.
-      # ----------------------------------------------------------------------
-      - name: Locate and validate SDK files
-        shell: pwsh
-        run: |
-          $inc = Get-ChildItem sdk -Recurse -Directory -Filter inc | Select-Object -First 1
-          $lib = Get-ChildItem sdk -Recurse -File -Filter ScriptHookV.lib | Select-Object -First 1
-
-          if (-not $inc -or -not $lib) {
-            Write-Host '--- SDK contents: ---'
-            Get-ChildItem sdk -Recurse | Select-Object -ExpandProperty FullName
-            throw 'SDK layout unexpected: inc/ or ScriptHookV.lib not found.'
-          }
-
-          # A valid static library begins with the archive signature '!<arch>'
-          # and is hundreds of KB. A Git LFS pointer is ~130 bytes of text —
-          # exactly the corruption behind LNK1107 "cannot read at 0xE".
-          $sigBytes = Get-Content $lib.FullName -AsByteStream -TotalCount 7
-          $sig = [Text.Encoding]::ASCII.GetString($sigBytes)
-          if ($sig -ne '!<arch>' -or $lib.Length -lt 50KB) {
-            throw "ScriptHookV.lib is corrupt: $($lib.Length) bytes, signature '$sig'."
-          }
-
-          "SDK_ROOT=$($inc.Parent.FullName)" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
-          "SDK_INC=$($inc.FullName)"         | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
-          "SDK_LIBDIR=$($lib.DirectoryName)" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
-
-          Write-Host "Headers: $($inc.FullName)"
-          Write-Host "Library: $($lib.FullName) ($([math]::Round($lib.Length/1KB)) KB)"
-
-      # ----------------------------------------------------------------------
-      # 3) MSVC environment. arch MUST be x64 — otherwise cl.exe emits x86
-      #    objects that cannot link against the x64 ScriptHookV.lib (LNK1112).
-      # ----------------------------------------------------------------------
-      - name: Setup MSVC (x64)
-        uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: x64
-
-      # ----------------------------------------------------------------------
-      # 4) Compile.
-      #    /std:c++17  -> fixes C4984 (MSVC defaults to C++14)
-      #    /MT         -> static CRT, no VC++ Redist dependency for players
-      #    Both the SDK root and inc/ go on the include path, so both
-      #    '#include "inc\types.h"' and '#include "types.h"' styles resolve.
-      # ----------------------------------------------------------------------
-      - name: Compile ASI File
-        shell: cmd
-        run: >-
-          cl.exe /nologo /LD /EHsc /std:c++17 /O2 /MT
-          main.cpp
-          /I "%SDK_ROOT%" /I "%SDK_INC%"
-          /Fe:WeaponsOnBack.asi
-          /link /MACHINE:X64 /LIBPATH:"%SDK_LIBDIR%" ScriptHookV.lib
-
-      # ----------------------------------------------------------------------
-      # 5) Prove the output exists and is a genuine 64-bit DLL before upload.
-      # ----------------------------------------------------------------------
-      - name: Verify binary
-        shell: cmd
-        run: |
-          if not exist WeaponsOnBack.asi exit /b 1
-          dumpbin /nologo /headers WeaponsOnBack.asi | findstr /C:"machine (x64)"
-
-      - name: Upload Finished Mod
-        uses: actions/upload-artifact@v4
-        with:
-          name: WeaponsOnBack
-          path: WeaponsOnBack.asi
-          if-no-files-found: error
+    - name: Upload Finished Mod
+      uses: actions/upload-artifact@v4
+      with:
+        name: GTA5-WeaponsOnBack-Mod
+        path: WeaponsOnBack.asi
