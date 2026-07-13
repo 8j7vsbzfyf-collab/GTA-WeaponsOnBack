@@ -22,6 +22,7 @@ jobs:
         curl -L -o natives.h https://raw.githubusercontent.com/Give-Two/ScriptHookV/master/SDK/inc/natives.h
         curl -L -o enums.h https://raw.githubusercontent.com/Give-Two/ScriptHookV/master/SDK/inc/enums.h
         curl -L -o types.h https://raw.githubusercontent.com/Give-Two/ScriptHookV/master/SDK/inc/types.h
+        curl -L -o nativeCaller.h https://raw.githubusercontent.com/Give-Two/ScriptHookV/master/SDK/inc/nativeCaller.h
         curl -L -o ScriptHookV.lib https://raw.githubusercontent.com/Give-Two/ScriptHookV/master/SDK/lib/ScriptHookV.lib
 
     - name: Compile ASI File
