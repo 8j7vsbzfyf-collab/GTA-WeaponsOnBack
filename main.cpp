@@ -6,7 +6,8 @@ void ScriptMain() {
     while (true) {
         Ped playerPed = PLAYER::PLAYER_PED_ID();
         
-        if (ENTITY::DOES_ENTITY_EXIST(playerPed) && !ENTITY::IS_ENTITY_DEAD(playerPed)) {
+        // التعديل صار هنا: أضفنا كلمة false في القوس لأن اللعبة تطلبها
+        if (ENTITY::DOES_ENTITY_EXIST(playerPed) && !ENTITY::IS_ENTITY_DEAD(playerPed, false)) {
             Hash currentWeapon;
             WEAPON::GET_CURRENT_PED_WEAPON(playerPed, &currentWeapon, true);
             
