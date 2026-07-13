@@ -147,8 +147,8 @@ static Object CreateBackProp(Ped ped, Hash weapon, int slotIdx)
 
     const Vector3 c = ENTITY::GET_ENTITY_COORDS(ped, TRUE);
 
-    // إضافة الأصفار لتكتمل 10 أوامر
-    Object obj = WEAPON::CREATE_WEAPON_OBJECT(weapon, 1, c.x, c.y, c.z, TRUE, 1.0f, 0, 0, 0);
+    // تم إرجاعها إلى 8 أوامر لتتوافق مع الملفات الأصلية
+    Object obj = WEAPON::CREATE_WEAPON_OBJECT(weapon, 1, c.x, c.y, c.z, TRUE, 1.0f, 0);
 
     WEAPON::REMOVE_WEAPON_ASSET(weapon); 
 
@@ -279,8 +279,8 @@ static void Update()
         return;
     }
 
-    // تصحيح دالة الموت
-    if (CUTSCENE::IS_CUTSCENE_PLAYING() || ENTITY::IS_ENTITY_DEAD(ped, FALSE))
+    // تم تعديلها لتأخذ معلومة واحدة فقط لتتوافق مع الملفات الأصلية
+    if (CUTSCENE::IS_CUTSCENE_PLAYING() || ENTITY::IS_ENTITY_DEAD(ped))
     {
         DeleteAllProps();
         return;
