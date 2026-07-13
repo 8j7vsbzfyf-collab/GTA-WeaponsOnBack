@@ -147,7 +147,8 @@ static Object CreateBackProp(Ped ped, Hash weapon, int slotIdx)
 
     const Vector3 c = ENTITY::GET_ENTITY_COORDS(ped, TRUE);
 
-    Object obj = WEAPON::CREATE_WEAPON_OBJECT(weapon, 1, c.x, c.y, c.z, TRUE, 1.0f, 0);
+    // التعديل السحري هنا: إضافة الصفرين في الأخير لتكتمل 10 أوامر
+    Object obj = WEAPON::CREATE_WEAPON_OBJECT(weapon, 1, c.x, c.y, c.z, TRUE, 1.0f, 0, 0, 0);
 
     WEAPON::REMOVE_WEAPON_ASSET(weapon); 
 
@@ -278,7 +279,6 @@ static void Update()
         return;
     }
 
-    // تم تصحيح البارامترات هنا لتفادي خطأ C2660
     if (CUTSCENE::IS_CUTSCENE_PLAYING() || ENTITY::IS_ENTITY_DEAD(ped, FALSE))
     {
         DeleteAllProps();
