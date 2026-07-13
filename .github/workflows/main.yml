@@ -15,12 +15,37 @@ jobs:
     - name: Setup MSVC Compiler
       uses: ilammy/msvc-dev-cmd@v1
 
-    - name: Download ScriptHookV SDK (Reliable Source)
+    - name: Download SDK Headers
       shell: cmd
       run: |
         git clone https://github.com/scripthookvdotnet/scripthookvdotnet.git shvdn_repo
         copy shvdn_repo\thirdparty\ScriptHookV\inc\*.h .
-        for /r shvdn_repo\thirdparty\ScriptHookV %%f in (ScriptHookV.lib) do copy "%%f" .
+
+    - name: Forge ScriptHookV.lib Locally
+      shell: cmd
+      run: |
+        echo EXPORTS > ScriptHookV.def
+        echo createTexture >> ScriptHookV.def
+        echo drawTexture >> ScriptHookV.def
+        echo getGameVersion >> ScriptHookV.def
+        echo getGlobalPtr >> ScriptHookV.def
+        echo keyboardHandlerRegister >> ScriptHookV.def
+        echo keyboardHandlerUnregister >> ScriptHookV.def
+        echo nativeCall >> ScriptHookV.def
+        echo nativeInit >> ScriptHookV.def
+        echo nativePush64 >> ScriptHookV.def
+        echo presentCallbackRegister >> ScriptHookV.def
+        echo presentCallbackUnregister >> ScriptHookV.def
+        echo scriptRegister >> ScriptHookV.def
+        echo scriptRegisterAdditionalThread >> ScriptHookV.def
+        echo scriptUnregister >> ScriptHookV.def
+        echo scriptWait >> ScriptHookV.def
+        echo textureHasLoaded >> ScriptHookV.def
+        echo worldGetAllObjects >> ScriptHookV.def
+        echo worldGetAllPeds >> ScriptHookV.def
+        echo worldGetAllPickups >> ScriptHookV.def
+        echo worldGetAllVehicles >> ScriptHookV.def
+        lib.exe /nologo /def:ScriptHookV.def /out:ScriptHookV.lib /machine:x64
 
     - name: Compile ASI File
       shell: cmd
