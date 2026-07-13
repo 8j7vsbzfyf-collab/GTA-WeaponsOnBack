@@ -15,12 +15,12 @@ jobs:
     - name: Setup MSVC Compiler
       uses: ilammy/msvc-dev-cmd@v1
 
-    - name: Download ScriptHookV SDK (Git Clone)
+    - name: Download ScriptHookV SDK (Reliable Source)
       shell: cmd
       run: |
-        git clone https://github.com/Give-Two/ScriptHookV.git sdk_repo
-        copy sdk_repo\SDK\inc\*.h .
-        copy sdk_repo\SDK\lib\ScriptHookV.lib .
+        git clone https://github.com/scripthookvdotnet/scripthookvdotnet.git shvdn_repo
+        copy shvdn_repo\thirdparty\ScriptHookV\inc\*.h .
+        for /r shvdn_repo\thirdparty\ScriptHookV %%f in (ScriptHookV.lib) do copy "%%f" .
 
     - name: Compile ASI File
       shell: cmd
