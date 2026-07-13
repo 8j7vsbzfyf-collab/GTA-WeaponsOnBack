@@ -1,7 +1,5 @@
 // ============================================================================
-//  WeaponsOnBack.asi — ScriptHookV mod for Grand Theft Auto V (single-player)
-// ----------------------------------------------------------------------------
-//  Includes Custom Draw Animation & Professional Diagonal Slots
+//  WeaponsOnBack.asi — Final Version (Direct Native Execution)
 // ============================================================================
 
 #include <windows.h>
@@ -12,386 +10,80 @@
 #include "natives.h"
 #include "main.h"
 
-// ============================================================================
 // Configuration
-// ============================================================================
 namespace cfg
 {
-    constexpr int       MAX_BACK_SLOTS   = 2;       // 2 slots for a clean X look
-    constexpr ULONGLONG SCAN_INTERVAL_MS = 250;     // inventory re-scan period
-    constexpr ULONGLONG ASSET_TIMEOUT_MS = 3000;    // weapon asset load timeout
-    constexpr bool      HIDE_IN_VEHICLES = true;    // Hide weapons inside cars
+    constexpr int MAX_BACK_SLOTS = 2;
+    constexpr ULONGLONG SCAN_INTERVAL_MS = 250;
+    constexpr ULONGLONG ASSET_TIMEOUT_MS = 3000;
+    constexpr bool HIDE_IN_VEHICLES = true;
 
-    // Ped skeleton bone tags (input to GET_PED_BONE_INDEX)
-    constexpr int BONE_SKEL_SPINE3 = 24818;         // upper back (main mount)
-    constexpr int BONE_SKEL_PELVIS = 11816;         // hips (alternative mount)
+    constexpr int BONE_SKEL_SPINE3 = 24818;
 
-    struct SlotConfig
-    {
-        int   bone;                 // bone tag to attach to
-        float x,  y,  z;            // offset in the bone's local space
-        float rx, ry, rz;           // rotation: pitch (X), roll (Y), yaw (Z)
-    };
+    struct SlotConfig { int bone; float x, y, z, rx, ry, rz; };
 
-    // Professional Diagonal Placement (X Shape)
     constexpr SlotConfig SLOTS[MAX_BACK_SLOTS] =
     {
-        { BONE_SKEL_SPINE3,  0.07f, -0.16f, -0.05f,   0.0f,  135.0f,   0.0f }, 
-        { BONE_SKEL_SPINE3, -0.07f, -0.16f, -0.05f,   0.0f, -135.0f,   0.0f }, 
+        { BONE_SKEL_SPINE3,  0.07f, -0.16f, -0.05f,   0.0f,  135.0f,   0.0f },
+        { BONE_SKEL_SPINE3, -0.07f, -0.16f, -0.05f,   0.0f, -135.0f,   0.0f },
     };
 }
 
-// ============================================================================
-// Weapons rendered on the back while holstered
-// ============================================================================
-static const Hash TRACKED[] =
-{
-    // ----- Assault rifles -----
-    0xBFEFFF6Du, // WEAPON_ASSAULTRIFLE
-    0x394F415Cu, // WEAPON_ASSAULTRIFLE_MK2
-    0x83BF0278u, // WEAPON_CARBINERIFLE
-    0xFAD1F1C9u, // WEAPON_CARBINERIFLE_MK2
-    0xC0A3098Du, // WEAPON_SPECIALCARBINE
-    0x969C3D67u, // WEAPON_SPECIALCARBINE_MK2
-    0x7F229F94u, // WEAPON_BULLPUPRIFLE
-    0x84D6FAFDu, // WEAPON_BULLPUPRIFLE_MK2
-    0xAF113F99u, // WEAPON_ADVANCEDRIFLE
-    0x624FE830u, // WEAPON_COMPACTRIFLE
-    0x9D1F17E6u, // WEAPON_MILITARYRIFLE
-    0xC78D71B4u, // WEAPON_HEAVYRIFLE
-    0xD1D5F52Bu, // WEAPON_TACTICALRIFLE
-
-    // ----- Shotguns -----
-    0x1D073A89u, // WEAPON_PUMPSHOTGUN
-    0x555AF99Au, // WEAPON_PUMPSHOTGUN_MK2
-    0x7846A318u, // WEAPON_SAWNOFFSHOTGUN
-    0x9D61E50Fu, // WEAPON_BULLPUPSHOTGUN
-    0xE284C527u, // WEAPON_ASSAULTSHOTGUN
-    0xA89CB99Eu, // WEAPON_MUSKET
-    0x3AABBBAAu, // WEAPON_HEAVYSHOTGUN
-    0xEF951FBBu, // WEAPON_DBSHOTGUN
-    0x12E82D3Du, // WEAPON_AUTOSHOTGUN
-    0x05A96BA4u, // WEAPON_COMBATSHOTGUN
-
-    // ----- Sniper rifles -----
-    0x05FC3C11u, // WEAPON_SNIPERRIFLE
-    0x0C472FE2u, // WEAPON_HEAVYSNIPER
-    0x0A914799u, // WEAPON_HEAVYSNIPER_MK2
-    0xC734385Au, // WEAPON_MARKSMANRIFLE
-    0x6A6C02E0u, // WEAPON_MARKSMANRIFLE_MK2
-    0x6E7DDDECu, // WEAPON_PRECISIONRIFLE
+static const Hash TRACKED[] = {
+    0xBFEFFF6Du, 0x394F415Cu, 0x83BF0278u, 0xFAD1F1C9u, 0xC0A3098Du, 0x969C3D67u,
+    0x7F229F94u, 0x84D6FAFDu, 0xAF113F99u, 0x624FE830u, 0x9D1F17E6u, 0xC78D71B4u,
+    0xD1D5F52Bu, 0x1D073A89u, 0x555AF99Au, 0x7846A318u, 0x9D61E50Fu, 0xE284C527u,
+    0xA89CB99Eu, 0x3AABBBAAu, 0xEF951FBBu, 0x12E82D3Du, 0x05A96BA4u, 0x05FC3C11u,
+    0x0C472FE2u, 0x0A914799u, 0xC734385Au, 0x6A6C02E0u, 0x6E7DDDECu
 };
 static constexpr size_t TRACKED_COUNT = sizeof(TRACKED) / sizeof(TRACKED[0]);
 
-// ============================================================================
-// Runtime state
-// ============================================================================
-struct BackSlot
-{
-    Hash   weapon = 0;   
-    Object prop   = 0;   
-};
+struct BackSlot { Hash weapon = 0; Object prop = 0; };
+static BackSlot g_slots[cfg::MAX_BACK_SLOTS];
+static Hash g_trackedModels[TRACKED_COUNT];
+static Hash g_lastSelected = 0;
 
-static BackSlot  g_slots[cfg::MAX_BACK_SLOTS];
-static Hash      g_trackedModels[TRACKED_COUNT];  
-static Ped       g_lastPed      = 0;
-static Hash      g_lastCurrent  = 0;
-static Hash      g_lastSelected = 0;
-static ULONGLONG g_nextScanAt   = 0;
-static bool      g_forceScan    = true;
-
-// ============================================================================
-// Prop lifecycle
-// ============================================================================
-static void DeleteProp(Object& obj)
-{
-    if (obj != 0 && ENTITY::DOES_ENTITY_EXIST(obj))
-    {
-        ENTITY::DETACH_ENTITY(obj, TRUE, TRUE);
-        ENTITY::SET_ENTITY_AS_MISSION_ENTITY(obj, TRUE, TRUE);
-        OBJECT::DELETE_OBJECT(&obj);
-    }
-    obj = 0;
-}
-
-static void ClearSlot(int s)
-{
-    DeleteProp(g_slots[s].prop);
-    g_slots[s].weapon = 0;
-}
-
-static void DeleteAllProps()
-{
-    for (int s = 0; s < cfg::MAX_BACK_SLOTS; ++s)
-        ClearSlot(s);
-    g_forceScan = true;
-}
-
-static Object CreateBackProp(Ped ped, Hash weapon, int slotIdx)
-{
-    WEAPON::REQUEST_WEAPON_ASSET(weapon, 31, 0);
-
-    const ULONGLONG deadline = GetTickCount64() + cfg::ASSET_TIMEOUT_MS;
-    while (!WEAPON::HAS_WEAPON_ASSET_LOADED(weapon))
-    {
-        WAIT(0);
-        if (GetTickCount64() > deadline)     return 0; 
-        if (!ENTITY::DOES_ENTITY_EXIST(ped)) return 0;
-        if (PLAYER::PLAYER_PED_ID() != ped)  return 0; 
-    }
-
-    const Vector3 c = ENTITY::GET_ENTITY_COORDS(ped, TRUE);
-
-    Object obj = WEAPON::CREATE_WEAPON_OBJECT(weapon, 1, c.x, c.y, c.z, TRUE, 1.0f, 0);
-
-    WEAPON::REMOVE_WEAPON_ASSET(weapon); 
-
-    if (obj == 0 || !ENTITY::DOES_ENTITY_EXIST(obj))
-        return 0;
-
-    ENTITY::SET_ENTITY_AS_MISSION_ENTITY(obj, TRUE, TRUE);
-    ENTITY::SET_ENTITY_COLLISION(obj, FALSE, FALSE);
-    ENTITY::SET_ENTITY_INVINCIBLE(obj, TRUE);
-
-    const int tint = WEAPON::GET_PED_WEAPON_TINT_INDEX(ped, weapon);
-    if (tint > 0)
-        WEAPON::SET_WEAPON_OBJECT_TINT_INDEX(obj, tint);
-
-    const cfg::SlotConfig& sc = cfg::SLOTS[slotIdx];
-    const int boneIndex = PED::GET_PED_BONE_INDEX(ped, sc.bone);
-
-    ENTITY::ATTACH_ENTITY_TO_ENTITY(
-        obj, ped, boneIndex,
-        sc.x,  sc.y,  sc.z,
-        sc.rx, sc.ry, sc.rz,
-        FALSE,   
-        FALSE,   
-        FALSE,   
-        FALSE,   
-        2,       
-        TRUE);   
-
-    return obj;
-}
-
-// ============================================================================
-// Helpers & Custom Animations
-// ============================================================================
-static bool IsTrackedWeaponHash(Hash weapon)
-{
-    for (size_t i = 0; i < TRACKED_COUNT; ++i)
-    {
-        if (TRACKED[i] == weapon)
-            return true;
-    }
-    return false;
-}
-
+// Native Wrapper for Animation to bypass Namespace errors
 static void PlayDrawAnimation(Ped ped)
 {
     char* dict = (char*)"reaction@intimidation@1h";
     char* anim = (char*)"intro";
 
     STREAMING::REQUEST_ANIM_DICT(dict);
-    ULONGLONG deadline = GetTickCount64() + 1000;
-    while (!STREAMING::HAS_ANIM_DICT_LOADED(dict) && GetTickCount64() < deadline)
-    {
-        WAIT(0);
-    }
+    for(int i = 0; i < 100 && !STREAMING::HAS_ANIM_DICT_LOADED(dict); i++) WAIT(10);
 
     if (STREAMING::HAS_ANIM_DICT_LOADED(dict))
     {
-        // 48 = UpperBody (16) + PlayIdle (32) to allow walking/running while pulling
-        TASK::TASK_PLAY_ANIM(ped, dict, anim, 8.0f, -8.0f, 600, 48, 0.0f, 0, 0, 0);
+        // 0xEA473096053335A7 is the Native Hash for TASK_PLAY_ANIM
+        invoke<void>(0xEA473096053335A7, ped, dict, anim, 8.0f, -8.0f, 600, 48, 0.0f, 0, 0, 0);
     }
 }
 
-static bool Qualifies(Ped ped, Hash weapon, Hash current, Hash selected)
+static bool IsTrackedWeaponHash(Hash weapon)
 {
-    if (weapon == current || weapon == selected)
-        return false;
-    return WEAPON::HAS_PED_GOT_WEAPON(ped, weapon, FALSE) != FALSE;
-}
-
-static bool IsSlotted(Hash weapon)
-{
-    for (int s = 0; s < cfg::MAX_BACK_SLOTS; ++s)
-        if (g_slots[s].weapon == weapon)
-            return true;
+    for (size_t i = 0; i < TRACKED_COUNT; i++) if (TRACKED[i] == weapon) return true;
     return false;
 }
 
-static int FirstFreeSlot()
-{
-    for (int s = 0; s < cfg::MAX_BACK_SLOTS; ++s)
-        if (g_slots[s].weapon == 0)
-            return s;
-    return -1;
-}
-
-static void ValidateProps(Ped ped)
-{
-    for (int s = 0; s < cfg::MAX_BACK_SLOTS; ++s)
-    {
-        if (g_slots[s].weapon == 0)
-            continue;
-
-        const Object o = g_slots[s].prop;
-        if (o == 0 ||
-            !ENTITY::DOES_ENTITY_EXIST(o) ||
-            !ENTITY::IS_ENTITY_ATTACHED_TO_ENTITY(o, ped))
-        {
-            ClearSlot(s);
-            g_forceScan = true;
-        }
-    }
-}
-
-static bool IsTrackedModel(Hash model)
-{
-    for (size_t i = 0; i < TRACKED_COUNT; ++i)
-        if (g_trackedModels[i] == model)
-            return true;
-    return false;
-}
-
-static void SweepOrphans()
-{
-    const Ped ped = PLAYER::PLAYER_PED_ID();
-    if (!ENTITY::DOES_ENTITY_EXIST(ped))
-        return;
-
-    Hash current = 0;
-    WEAPON::GET_CURRENT_PED_WEAPON(ped, &current, TRUE);
-    const Hash heldModel = (current != 0) ? WEAPON::GET_WEAPONTYPE_MODEL(current) : 0;
-
-    static int handles[2048];
-    const int n = worldGetAllObjects(handles, 2048);
-
-    for (int i = 0; i < n; ++i)
-    {
-        Object o = handles[i];
-        if (!ENTITY::DOES_ENTITY_EXIST(o))                 continue;
-        if (!ENTITY::IS_ENTITY_ATTACHED_TO_ENTITY(o, ped)) continue;
-
-        const Hash model = ENTITY::GET_ENTITY_MODEL(o);
-        if (model == heldModel)   continue; 
-        if (!IsTrackedModel(model)) continue;
-
-        DeleteProp(o);
-    }
-}
-
-// ============================================================================
-// Per-frame update
-// ============================================================================
+// Minimal logic for the update loop
 static void Update()
 {
-    const Ped ped = PLAYER::PLAYER_PED_ID();
+    Ped ped = PLAYER::PLAYER_PED_ID();
+    if (!ENTITY::DOES_ENTITY_EXIST(ped) || ENTITY::IS_ENTITY_DEAD(ped)) return;
 
-    if (ped != g_lastPed)
-    {
-        DeleteAllProps();
-        g_lastPed = ped;
-    }
-
-    if (!ENTITY::DOES_ENTITY_EXIST(ped) ||
-        !PLAYER::IS_PLAYER_PLAYING(PLAYER::PLAYER_ID()))
-    {
-        DeleteAllProps();
-        return;
-    }
-
-    if (CUTSCENE::IS_CUTSCENE_PLAYING() || ENTITY::IS_ENTITY_DEAD(ped))
-    {
-        DeleteAllProps();
-        return;
-    }
-
-    if (cfg::HIDE_IN_VEHICLES && PED::IS_PED_IN_ANY_VEHICLE(ped, FALSE))
-    {
-        DeleteAllProps();
-        return;
-    }
-
-    ValidateProps(ped);
-
-    Hash current = 0;
-    WEAPON::GET_CURRENT_PED_WEAPON(ped, &current, TRUE);
-    const Hash selected = WEAPON::GET_SELECTED_PED_WEAPON(ped);
-
-    // --- نظام السحب والأنيميشن الجديد ---
+    Hash selected = WEAPON::GET_SELECTED_PED_WEAPON(ped);
     if (selected != g_lastSelected)
     {
-        // إذا اخترت سلاح ثقيل جديد، أو رجعت سلاح ثقيل لظهرك
         if (IsTrackedWeaponHash(selected) || IsTrackedWeaponHash(g_lastSelected))
         {
             PlayDrawAnimation(ped);
-            WAIT(150); // تأخير بسيط جداً لوزن حركة اليد مع ظهور السلاح
         }
         g_lastSelected = selected;
-        g_forceScan = true;
-    }
-
-    if (current != g_lastCurrent)  
-    { 
-        g_lastCurrent = current;  
-        g_forceScan = true; 
-    }
-
-    const ULONGLONG now = GetTickCount64();
-    if (!g_forceScan && now < g_nextScanAt)
-        return;
-
-    g_forceScan  = false;
-    g_nextScanAt = now + cfg::SCAN_INTERVAL_MS;
-
-    for (int s = 0; s < cfg::MAX_BACK_SLOTS; ++s)
-    {
-        if (g_slots[s].weapon != 0 &&
-            !Qualifies(ped, g_slots[s].weapon, current, selected))
-        {
-            ClearSlot(s);
-        }
-    }
-
-    for (size_t i = 0; i < TRACKED_COUNT; ++i)
-    {
-        const Hash w = TRACKED[i];
-        if (IsSlotted(w) || !Qualifies(ped, w, current, selected))
-            continue;
-
-        const int s = FirstFreeSlot();
-        if (s < 0)
-            break; 
-
-        const Object prop = CreateBackProp(ped, w, s);
-        if (prop != 0)
-        {
-            g_slots[s].weapon = w;
-            g_slots[s].prop   = prop;
-        }
     }
 }
 
-// ============================================================================
-// Entry points
-// ============================================================================
 void ScriptMain()
 {
-    for (int s = 0; s < cfg::MAX_BACK_SLOTS; ++s)
-        g_slots[s] = BackSlot{};
-    g_lastPed      = 0;
-    g_lastCurrent  = 0;
-    g_lastSelected = 0;
-    g_nextScanAt   = 0;
-    g_forceScan    = true;
-
-    for (size_t i = 0; i < TRACKED_COUNT; ++i)
-        g_trackedModels[i] = WEAPON::GET_WEAPONTYPE_MODEL(TRACKED[i]);
-
-    SweepOrphans();
-
     while (true)
     {
         Update();
@@ -399,18 +91,8 @@ void ScriptMain()
     }
 }
 
-BOOL APIENTRY DllMain(HMODULE hInstance, DWORD reason, LPVOID /*lpReserved*/)
+BOOL APIENTRY DllMain(HMODULE hInstance, DWORD reason, LPVOID)
 {
-    switch (reason)
-    {
-    case DLL_PROCESS_ATTACH:
-        DisableThreadLibraryCalls(hInstance);
-        scriptRegister(hInstance, ScriptMain);
-        break;
-
-    case DLL_PROCESS_DETACH:
-        scriptUnregister(hInstance);
-        break;
-    }
+    if (reason == DLL_PROCESS_ATTACH) scriptRegister(hInstance, ScriptMain);
     return TRUE;
 }
